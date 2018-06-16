@@ -16,6 +16,7 @@
 package gousb
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 )
@@ -136,4 +137,51 @@ func (i *Interface) OutEndpoint(epNum int) (*OutEndpoint, error) {
 	return &OutEndpoint{
 		endpoint: ep,
 	}, nil
+}
+
+// Get1284PnPIdentifier gets the PnP identifier from the device.
+// Code based on get_device_id() from CUPS (backend/usb-libusb.c).
+func (i *Interface) Get1284PnPIdentifier() (*string, error) {
+	if i.config == nil {
+		return nil, fmt.Errorf("Get1284PnPIdentifier() called on %s after Close", i)
+	}
+
+	bufferSize := 1024
+	data := make([]byte, bufferSize)
+	n, err := i.config.dev.Control(ControlClass|ControlIn|ControlInterface, uint8(0), uint16(i.config.Desc.Number), (uint16(i.Setting.Number<<8))|uint16(i.Setting.Alternate), data)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check whether the length is in the data, the length is stored in the first 2 bytes.
+	if n <= 2 {
+		return nil, errors.New("Invalid ID length")
+	}
+
+	// The 1284 spec says the length is stored MSB first...
+	length := (int)(((uint(data[0]) & 255) << 8) | (uint(data[1]) & 255))
+
+	/*
+	 * Check to see if the length is larger than our buffer or less than 14 bytes
+	 * (the minimum valid device ID is "MFG:x;MDL:y;" with 2 bytes for the length).
+	 *
+	 * If the length is out-of-range, assume that the vendor incorrectly
+	 * implemented the 1284 spec and re-read the length as LSB first,..
+	 */
+	if length > bufferSize || length < 14 {
+		length = (int)(((uint(data[1]) & 255) << 8) | (uint(data[0]) & 255))
+	}
+
+	// Bounds check.
+	if length > bufferSize {
+		length = bufferSize
+	}
+
+	// Minimum device length is 14 bytes.
+	if length < 14 {
+		return nil, errors.New("Invalid ID")
+	}
+
+	identifier := string(data[2:length])
+	return &identifier, nil
 }
