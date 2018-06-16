@@ -192,6 +192,7 @@ func (d *Device) DefaultInterface() (intf *Interface, done func(), err error) {
 }
 
 // Control sends a control request to the device.
+// Maximum size of data is 4KB.
 func (d *Device) Control(rType, request uint8, val, idx uint16, data []byte) (int, error) {
 	if d.handle == nil {
 		return 0, fmt.Errorf("Control() called on %s after Close", d)
